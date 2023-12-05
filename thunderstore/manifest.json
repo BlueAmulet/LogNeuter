@@ -1,0 +1,9 @@
+{
+  "name": "LogNeuter",
+  "description": "Utility to block certain log messages from the game",
+  "version_number": "1.0.0",
+  "website_url": "",
+  "dependencies": [
+    "BepInEx-BepInExPack-5.4.2100"
+  ]
+}
