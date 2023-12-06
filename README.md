@@ -3,8 +3,6 @@ Allows you to remove certain logging messages from a Unity game.
 Supports constant strings and formatted strings.  
 Download via Thunderstore [here](https://thunderstore.io/c/lethal-company/p/BlueAmulet/LogNeuter/)
 
-Libraries included in this project are stripped of code and used as reference only.
-
 ## Instructions
 Add an entry to the configuration in the following format:  
 ```

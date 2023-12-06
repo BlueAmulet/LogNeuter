@@ -19,15 +19,17 @@ namespace LogNeuter
     {
         internal const string Name = "LogNeuter";
         internal const string Author = "BlueAmulet";
-        internal const string ID = Author + "." + Name;
-        internal const string Version = "1.0.0";
+        internal const string Version = "1.0.1";
+        private const string ID = Author + "." + Name;
 
         private static ManualLogSource Log;
         private static ConfigFile ConfigFile;
 
         // Configuration
+        private const int ConfVersion = 1;
         private static ConfigEntry<int> version;
         private static ConfigEntry<bool> fixSpatializer;
+        private static ConfigEntry<bool> fixLookRotation;
         private static ConfigEntry<bool> genBlockAll;
         private static bool allowSave = false;
         private static bool warnSave = true;
@@ -52,34 +54,73 @@ namespace LogNeuter
             HarmonyMethod savePatch = new HarmonyMethod(AccessTools.Method(typeof(LogNeuter), nameof(PrefixConfigSave)));
             harmony.Patch(saveMethod, prefix: savePatch);
 
+            // Check if Version config exists
+            if (AccessTools.DeclaredPropertyGetter(typeof(ConfigFile), "OrphanedEntries")?.Invoke(Config, null) is Dictionary<ConfigDefinition, string> OrphanedEntries)
+            {
+                ConfigDefinition VersionDef = new ConfigDefinition("Config", "Version");
+                if (OrphanedEntries.Count != 0 && !OrphanedEntries.ContainsKey(VersionDef))
+                {
+                    OrphanedEntries[VersionDef] = "0";
+                }
+            }
+
             // Configuration
             warnSave = false;
+            version = Config.Bind("Config", "Version", ConfVersion, "Disable broken spatialize on audio sources");
             fixSpatializer = Config.Bind("Config", "FixSpatializer", true, "Disable broken spatialize on audio sources");
+            fixLookRotation = Config.Bind("Config", "FixLookRotation", true, "Mask \"Look rotation viewing vector is zero\" messages");
             genBlockAll = Config.Bind("Config", "GenBlockAll", false, "Generate a config file that blocks all logging");
             warnSave = true;
+
+            if (version.Value < ConfVersion)
+            {
+                Logger.LogWarning($"Configuration out of date, expected version {ConfVersion}, got {version.Value}");
+            }
+            else if (version.Value > ConfVersion)
+            {
+                Logger.LogError($"Configuration too new, expected version {ConfVersion}, got {version.Value}");
+            }
 
             // Scan all game classes for logging
             if (genBlockAll.Value)
             {
-                const string GenID = ID + ".Generated";
-                genFile = new StreamWriter(Path.Combine(Path.GetDirectoryName(Config.ConfigFilePath), GenID + ".cfg"), false, Encoding.UTF8);
-                genFile.WriteLine("## This is a generated file, it does not actively do anything and only serves as reference for the real config file");
-                Assembly game = Assembly.GetAssembly(typeof(HUDManager));
-                HarmonyMethod transpilerGen = new HarmonyMethod(AccessTools.Method(typeof(LogNeuter), nameof(TranspilerGen)));
-                foreach (Type type in game.GetTypes())
+                Assembly game = Array.Find(AppDomain.CurrentDomain.GetAssemblies(), a => a.GetName().Name == "Assembly-CSharp");
+                if (game != null)
                 {
-                    foreach (MethodInfo method in type.GetMethods(BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
+                    const string GenID = ID + ".Generated";
+                    genFile = new StreamWriter(Path.Combine(Path.GetDirectoryName(Config.ConfigFilePath), GenID + ".cfg"), false, Encoding.UTF8);
+                    genFile.WriteLine("## This is a generated file, it does not actively do anything and only serves as reference for the real config file");
+                    Harmony harmonyGen = new Harmony(GenID);
+                    HarmonyMethod transpilerGen = new HarmonyMethod(AccessTools.Method(typeof(LogNeuter), nameof(TranspilerGen)));
+                    foreach (Type type in game.GetTypes())
                     {
-                        try
+                        Logger.LogInfo($"Scanning {type.FullName}");
+                        foreach (MethodInfo method in type.GetMethods(BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
                         {
-                            harmony.Patch(method, transpiler: transpilerGen);
-                        }
-                        catch
-                        {
+                            try
+                            {
+                                harmonyGen.Patch(method, transpiler: transpilerGen);
+                                harmonyGen.Unpatch(method, HarmonyPatchType.Transpiler, GenID);
+                            }
+                            catch (HarmonyException)
+                            {
+                            }
                         }
                     }
+                    genFile.Close();
                 }
-                genFile.Close();
+                else
+                {
+                    Logger.LogError("Could not find Assembly-CSharp, generation skipped");
+                }
+            }
+
+            // Mask Look Rotation errors
+            if (fixLookRotation.Value)
+            {
+                MethodBase original = AccessTools.Method(typeof(Quaternion), "LookRotation", new Type[] { typeof(Vector3), typeof(Vector3) });
+                HarmonyMethod transpiler = new HarmonyMethod(AccessTools.Method(typeof(LogNeuter), nameof(TranspilerLookRotation)));
+                harmony.Patch(original, transpiler: transpiler);
             }
 
             // Gather config entries
@@ -166,19 +207,16 @@ namespace LogNeuter
             }
 
             // Patch log
-            if (!genBlockAll.Value)
+            int patchedMethods = 0;
+            foreach (MethodBase method in harmony.GetPatchedMethods())
             {
-                int patchedMethods = 0;
-                foreach (MethodBase method in harmony.GetPatchedMethods())
-                {
-                    Logger.LogInfo("Patched " + method.DeclaringType.Name + "." + method.Name);
-                    patchedMethods++;
-                }
-                Logger.LogInfo(patchedMethods + " patches applied");
+                Logger.LogInfo("Patched " + method.DeclaringType.Name + "." + method.Name);
+                patchedMethods++;
             }
+            Logger.LogInfo(patchedMethods + " patches applied");
         }
 
-        public void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             // Game has no valid spatializer, disable spatialization
             if (fixSpatializer.Value)
@@ -196,7 +234,7 @@ namespace LogNeuter
             }
         }
 
-        public static bool PrefixConfigSave(ref ConfigFile __instance)
+        private static bool PrefixConfigSave(ref ConfigFile __instance)
         {
             // Prevent saving our config
             if (__instance == ConfigFile && !allowSave)
@@ -213,21 +251,41 @@ namespace LogNeuter
             }
         }
 
+        private static IEnumerable<CodeInstruction> TranspilerLookRotation(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
+        {
+            List<CodeInstruction> instrs = new List<CodeInstruction>(instructions);
+            Label FirstLabel = generator.DefineLabel();
+            instrs[0].labels.Add(FirstLabel);
+            instrs.InsertRange(0, new List<CodeInstruction> {
+                new CodeInstruction(OpCodes.Ldarg_0),
+                new CodeInstruction(OpCodes.Call, AccessTools.PropertyGetter(typeof(Vector3), "zero")),
+                new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(Vector3), "op_Equality")),
+                new CodeInstruction(OpCodes.Brfalse_S, FirstLabel),
+                new CodeInstruction(OpCodes.Call, AccessTools.PropertyGetter(typeof(Quaternion), "identity")),
+                new CodeInstruction(OpCodes.Ret),
+            });
+            return instrs;
+        }
+
         private static void PatchMethod(MethodBase patchMethod)
         {
             if (patchMethod != null)
             {
-                string section = patchMethod.DeclaringType.FullName + "|" + patchMethod.Name;
-                if (staticLogs.ContainsKey(section))
+                if (staticLogs.ContainsKey(SectionName(patchMethod)))
                 {
                     harmony.Patch(patchMethod, transpiler: transpiler);
                 }
             }
         }
 
-        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
+        private static string SectionName(MethodBase method)
         {
-            string section = original.DeclaringType.FullName + "|" + original.Name;
+            return method.DeclaringType.FullName + "|" + method.Name;
+        }
+
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
+        {
+            string section = SectionName(original);
             bool patched = false;
             List<CodeInstruction> instrs = new List<CodeInstruction>(instructions);
             for (int i = 1; i < instrs.Count; i++)
@@ -290,14 +348,13 @@ namespace LogNeuter
             }
         }
 
-        public static IEnumerable<CodeInstruction> TranspilerGen(IEnumerable<CodeInstruction> instructions, MethodBase original)
+        private static IEnumerable<CodeInstruction> TranspilerGen(IEnumerable<CodeInstruction> instructions, MethodBase original)
         {
             List<CodeInstruction> instrs = new List<CodeInstruction>(instructions);
             // Transpilers get recalled for patches
             if (genFile.BaseStream?.CanWrite == true)
             {
-                string section = original.DeclaringType.FullName + "|" + original.Name;
-                Log.LogInfo($"Scanning {section}");
+                string section = SectionName(original);
                 bool wroteHeader = false;
                 HashSet<string> strings = new HashSet<string>();
                 for (int i = 1; i < instrs.Count; i++)
@@ -356,7 +413,7 @@ namespace LogNeuter
 
         private static bool MatchAny(string section, string log)
         {
-            if (!dynamicLogs.ContainsKey(section))
+            if (section == null || !dynamicLogs.ContainsKey(section))
             {
                 return false;
             }
