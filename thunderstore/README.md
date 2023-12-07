@@ -42,6 +42,9 @@ PLAYER OPENED MENU
 
 [PlayAudioAnimationEvent|PlayAudio2RandomClip]
 Playing random clip 2
+
+[Unity.Netcode.RpcMessageHelpers, Unity.Netcode.Runtime|Handle]
+^[0-9]+ | __rpc_handler_[0-9]+$
 ```
 
 ## Known generator issues
@@ -53,6 +56,11 @@ These only affect very few possible logging messages.
 ## Changelog
 <details>
 <summary>Click to expand</summary>
+
+### 1.0.2
+Fixed patching logs from classes other than Assembly-CSharp.  
+Fixed patching not applying if only regex patches were used.  
+Blocked trying to patch LogException.
 
 ### 1.0.1
 Added versioning to the config, a warning message will appear if the config version is different than expected.  

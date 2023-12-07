@@ -19,7 +19,7 @@ namespace LogNeuter
     {
         internal const string Name = "LogNeuter";
         internal const string Author = "BlueAmulet";
-        internal const string Version = "1.0.1";
+        internal const string Version = "1.0.2";
         private const string ID = Author + "." + Name;
 
         private static ManualLogSource Log;
@@ -271,7 +271,8 @@ namespace LogNeuter
         {
             if (patchMethod != null)
             {
-                if (staticLogs.ContainsKey(SectionName(patchMethod)))
+                string section = SectionName(patchMethod);
+                if (staticLogs.ContainsKey(section) || dynamicLogs.ContainsKey(section))
                 {
                     harmony.Patch(patchMethod, transpiler: transpiler);
                 }
@@ -280,7 +281,16 @@ namespace LogNeuter
 
         private static string SectionName(MethodBase method)
         {
-            return method.DeclaringType.FullName + "|" + method.Name;
+            Type methodType = method.DeclaringType;
+            string assemblyName = methodType.Assembly.GetName().Name;
+            if (assemblyName == "Assembly-CSharp")
+            {
+                return methodType.FullName + "|" + method.Name;
+            }
+            else
+            {
+                return methodType.FullName + ", " + assemblyName + "|" + method.Name;
+            }
         }
 
         private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
@@ -295,7 +305,7 @@ namespace LogNeuter
                 if (instr.opcode == OpCodes.Call && instr.operand is MethodInfo method)
                 {
                     // Useless comment to stop Roslynator from trying to merge
-                    if (method.IsStatic && method.DeclaringType == typeof(Debug) && method.Name.StartsWith("Log"))
+                    if (method.IsStatic && method.DeclaringType == typeof(Debug) && method.Name.StartsWith("Log") && method.Name != "LogException")
                     {
                         CodeInstruction prevInstr = instrs[i - 1];
                         if (prevInstr.opcode == OpCodes.Ldstr)
