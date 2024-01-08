@@ -19,7 +19,7 @@ namespace LogNeuter
     {
         internal const string Name = "LogNeuter";
         internal const string Author = "BlueAmulet";
-        internal const string Version = "1.0.2";
+        internal const string Version = "1.0.3";
         private const string ID = Author + "." + Name;
 
         private static ManualLogSource Log;
@@ -161,10 +161,18 @@ namespace LogNeuter
                                     }
                                     else
                                     {
-                                        patchMethod = AccessTools.Method(patchType, split[1]);
-                                        if (patchMethod == null)
+                                        try
                                         {
-                                            Logger.LogWarning($"Could not find method: {section}");
+                                            patchMethod = AccessTools.Method(patchType, split[1]);
+                                            if (patchMethod == null)
+                                            {
+                                                Logger.LogWarning($"Could not find method: {section}");
+                                            }
+                                        }
+                                        catch (AmbiguousMatchException e)
+                                        {
+                                            patchMethod = null;
+                                            Logger.LogError(e);
                                         }
                                     }
                                 }
@@ -230,7 +238,10 @@ namespace LogNeuter
                         fixedSpatilization++;
                     }
                 }
-                Logger.LogInfo($"Fixed {fixedSpatilization} spatilization settings");
+                if (fixedSpatilization > 0)
+                {
+                    Logger.LogInfo($"Fixed {fixedSpatilization} spatilization settings");
+                }
             }
         }
 
@@ -274,7 +285,14 @@ namespace LogNeuter
                 string section = SectionName(patchMethod);
                 if (staticLogs.ContainsKey(section) || dynamicLogs.ContainsKey(section))
                 {
-                    harmony.Patch(patchMethod, transpiler: transpiler);
+                    try
+                    {
+                        harmony.Patch(patchMethod, transpiler: transpiler);
+                    }
+                    catch (HarmonyException e)
+                    {
+                        Log.LogError(e);
+                    }
                 }
             }
         }
