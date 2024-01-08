@@ -60,7 +60,7 @@ These only affect very few possible logging messages.
 ### 1.0.3
 Prevent Ambigious method matching from halting patching.  
 Prevent Transpiler IL errors from halting patching.  
-Only log spatilization changes if anything was patched.
+Only log spatialization changes if anything was patched.
 
 ### 1.0.2
 Fixed patching logs from classes other than Assembly-CSharp.  

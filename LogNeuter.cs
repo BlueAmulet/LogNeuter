@@ -229,18 +229,18 @@ namespace LogNeuter
             // Game has no valid spatializer, disable spatialization
             if (fixSpatializer.Value)
             {
-                int fixedSpatilization = 0;
+                int fixedSpatialization = 0;
                 foreach (AudioSource source in Resources.FindObjectsOfTypeAll<AudioSource>())
                 {
                     if (source.spatialize)
                     {
                         source.spatialize = false;
-                        fixedSpatilization++;
+                        fixedSpatialization++;
                     }
                 }
-                if (fixedSpatilization > 0)
+                if (fixedSpatialization > 0)
                 {
-                    Logger.LogInfo($"Fixed {fixedSpatilization} spatilization settings");
+                    Logger.LogInfo($"Fixed {fixedSpatialization} spatialization settings");
                 }
             }
         }
