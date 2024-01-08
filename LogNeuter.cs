@@ -66,7 +66,7 @@ namespace LogNeuter
 
             // Configuration
             warnSave = false;
-            version = Config.Bind("Config", "Version", ConfVersion, "Disable broken spatialize on audio sources");
+            version = Config.Bind("Config", "Version", ConfVersion, "Version of configuration format");
             fixSpatializer = Config.Bind("Config", "FixSpatializer", true, "Disable broken spatialize on audio sources");
             fixLookRotation = Config.Bind("Config", "FixLookRotation", true, "Mask \"Look rotation viewing vector is zero\" messages");
             genBlockAll = Config.Bind("Config", "GenBlockAll", false, "Generate a config file that blocks all logging");
